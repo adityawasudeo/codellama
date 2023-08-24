@@ -89,6 +89,11 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
 
 class Attention(nn.Module):
     def __init__(self, args: ModelArgs):
+
+        self.use_cpu = 0
+        if not torch.cuda.is_available():
+            self.use_cpu = 1
+
         super().__init__()
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
         model_parallel_size = fs_init.get_model_parallel_world_size()
@@ -126,22 +131,40 @@ class Attention(nn.Module):
             init_method=lambda x: x,
         )
 
-        self.cache_k = torch.zeros(
-            (
-                args.max_batch_size,
-                args.max_seq_len,
-                self.n_local_kv_heads,
-                self.head_dim,
+        if self.use_cpu == 1:
+            self.cache_k = torch.zeros(
+                (
+                    args.max_batch_size,
+                    args.max_seq_len,
+                    self.n_local_kv_heads,
+                    self.head_dim,
+                )
             )
-        ).cuda()
-        self.cache_v = torch.zeros(
-            (
-                args.max_batch_size,
-                args.max_seq_len,
-                self.n_local_kv_heads,
-                self.head_dim,
+            self.cache_v = torch.zeros(
+                (
+                    args.max_batch_size,
+                    args.max_seq_len,
+                    self.n_local_kv_heads,
+                    self.head_dim,
+                )
             )
-        ).cuda()
+        else:   
+            self.cache_k = torch.zeros(
+                (
+                    args.max_batch_size,
+                    args.max_seq_len,
+                    self.n_local_kv_heads,
+                    self.head_dim,
+                )
+            ).cuda()
+            self.cache_v = torch.zeros(
+                (
+                    args.max_batch_size,
+                    args.max_seq_len,
+                    self.n_local_kv_heads,
+                    self.head_dim,
+                )
+            ).cuda()
 
     def forward(
         self,

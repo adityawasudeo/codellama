@@ -14,12 +14,14 @@ def main(
     max_seq_len: int = 192,
     max_gen_len: int = 128,
     max_batch_size: int = 4,
+    use_cpu: int = 0,
 ):
     generator = Llama.build(
         ckpt_dir=ckpt_dir,
         tokenizer_path=tokenizer_path,
         max_seq_len=max_seq_len,
         max_batch_size=max_batch_size,
+        use_cpu=use_cpu
     )
 
     prompts = [
