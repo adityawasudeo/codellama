@@ -89,10 +89,18 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
 
 class Attention(nn.Module):
     def __init__(self, args: ModelArgs):
-
         self.use_cpu = 0
+        self.device = "cuda"
+
         if not torch.cuda.is_available():
+            if torch.backends.mps.is_available():
+                self.device = "mps"
+            else:
+                self.device = "cpu"
+
             self.use_cpu = 1
+
+        torch.device(self.device)
 
         super().__init__()
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
@@ -138,7 +146,7 @@ class Attention(nn.Module):
                     args.max_seq_len,
                     self.n_local_kv_heads,
                     self.head_dim,
-                )
+                ),device=torch.device(self.device)
             )
             self.cache_v = torch.zeros(
                 (
@@ -146,7 +154,7 @@ class Attention(nn.Module):
                     args.max_seq_len,
                     self.n_local_kv_heads,
                     self.head_dim,
-                )
+                ),device=torch.device(self.device)
             )
         else:   
             self.cache_k = torch.zeros(
@@ -269,6 +277,13 @@ class TransformerBlock(nn.Module):
 
 class Transformer(nn.Module):
     def __init__(self, params: ModelArgs):
+        self.device = "cuda"
+        if not torch.cuda.is_available():
+            if torch.backends.mps.is_available():
+                self.device = "mps"
+            else:
+                self.device = "cpu"
+
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -297,8 +312,10 @@ class Transformer(nn.Module):
     def forward(self, tokens: torch.Tensor, start_pos: int):
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
+        print(f"Pushing freqs_cis to MPS")
         self.freqs_cis = self.freqs_cis.to(h.device)
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
+        print(f"Pushed and cut freqs_cis")
 
         mask = None
         if seqlen > 1:

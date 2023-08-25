@@ -63,8 +63,17 @@ class Llama:
         max_seq_len: int,
         max_batch_size: int,
         model_parallel_size: Optional[int] = None,
-        use_cpu: Optional[int] = 0,
     ) -> "Llama":
+        use_cpu = 0
+        device = "cuda"
+
+        if not torch.cuda.is_available():
+            use_cpu = 1
+            if torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
+                
         if not torch.distributed.is_initialized():
             if use_cpu == 1:
                 torch.distributed.init_process_group("gloo")
@@ -77,7 +86,7 @@ class Llama:
 
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         if use_cpu == 1:
-            torch.device("cpu")
+            torch.device(device)
         else:
             torch.cuda.set_device(local_rank)
 
@@ -106,7 +115,10 @@ class Llama:
         tokenizer = Tokenizer(model_path=tokenizer_path)
         model_args.vocab_size = tokenizer.n_words
         if use_cpu == 1:
-            torch.set_default_tensor_type(torch.BFloat16Tensor)
+            if device == "mps":
+                torch.set_default_tensor_type(torch.HalfTensor)
+            else:
+                torch.set_default_tensor_type(torch.BFloat16Tensor)
         else:
             if torch.cuda.is_bf16_supported():
                 torch.set_default_tensor_type(torch.cuda.BFloat16Tensor)
@@ -115,6 +127,9 @@ class Llama:
 
         model = Transformer(model_args)
         model.load_state_dict(checkpoint, strict=False)
+        if use_cpu == 1:
+            model.to(device)
+
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
 
         return Llama(model, tokenizer)
@@ -128,6 +143,8 @@ class Llama:
         if not torch.cuda.is_available():
             self.use_cpu = 1
             self.device = "cpu"
+            if torch.backends.mps.is_available():
+                self.device = "mps"
 
     @torch.inference_mode()
     def generate(
