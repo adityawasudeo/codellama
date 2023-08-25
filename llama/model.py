@@ -67,11 +67,31 @@ def apply_rotary_emb(
     xk: torch.Tensor,
     freqs_cis: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    device = "cuda"
+    if not torch.cuda.is_available():
+        if torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+
+    if device == "mps":
+        xq = xq.to("cpu")
+        xk = xk.to("cpu")
+
     xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
     xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
+
     freqs_cis = reshape_for_broadcast(freqs_cis, xq_)
     xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3)
     xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3)
+
+    if device == "mps":
+        xq_out = xq_out.to(device)
+        xq_out = xk_out.to(device)
+        xq = xq.to(device)
+        xk = xk.to(device)
+
     return xq_out.type_as(xq), xk_out.type_as(xk)
 
 
@@ -312,10 +332,12 @@ class Transformer(nn.Module):
     def forward(self, tokens: torch.Tensor, start_pos: int):
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
-        print(f"Pushing freqs_cis to MPS")
-        self.freqs_cis = self.freqs_cis.to(h.device)
-        freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
-        print(f"Pushed and cut freqs_cis")
+        if self.device == "mps":
+            h.to("cpu")
+            freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
+        else:
+            self.freqs_cis = self.freqs_cis.to(h.device)
+            freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
         mask = None
         if seqlen > 1:
@@ -328,4 +350,6 @@ class Transformer(nn.Module):
             h = layer(h, start_pos, freqs_cis, mask)
         h = self.norm(h)
         output = self.output(h).float()
+        if self.device == "mps":
+            output.to("mps")
         return output
